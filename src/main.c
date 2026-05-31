@@ -1,6 +1,10 @@
 #include <pspkernel.h>
 #include <pspdisplay.h>
 #include <pspctrl.h>
+#include <pspgu.h>
+#include <pspgum.h>
+
+#include "player_img.h"
 
 PSP_MODULE_INFO("PlatformerPSP", 0, 1, 0);
 
@@ -12,42 +16,85 @@ int playerY = 200;
 int velY = 0;
 int isJumping = 0;
 
-int groundY = 200;
+void* fbp0;
+void* fbp1;
+void* zbp;
 
-void drawRect(int x, int y, int w, int h, int color) {
-    // simples placeholder (PSP real usa GU, aqui é lógico simplificado)
+typedef struct {
+    unsigned int width;
+    unsigned int height;
+    unsigned int image_size;
+    unsigned int mipmap;
+    unsigned int pixel_format;
+} Image;
+
+void initGraphics() {
+    fbp0 = sceGeEdramGetAddr();
+    fbp1 = fbp0 + (512 * 272 * 4);
+    zbp  = fbp1 + (512 * 272 * 4);
+
+    sceGuInit();
+    sceGuStart(GU_DIRECT, NULL);
+
+    sceGuDrawBuffer(GU_PSM_8888, fbp0, 512);
+    sceGuDispBuffer(480, 272, fbp1, 512);
+    sceGuDepthBuffer(zbp, 512);
+
+    sceGuOffset(2048 - (480 / 2), 2048 - (272 / 2));
+    sceGuViewport(2048, 2048, 480, 272);
+    sceGuEnable(GU_TEXTURE_2D);
+
+    sceGuFinish();
+    sceGuSync(0,0);
+    sceDisplayWaitVblankStart();
+    sceGuDisplay(GU_TRUE);
+}
+
+void drawSprite(Image* img, int x, int y) {
+    sceGuTexMode(GU_PSM_8888, 0, 0, 0);
+    sceGuTexImage(0, img->width, img->height, img->width, img+1);
+
+    ScePspFVector3 pos = {x, y, 0};
+
+    sceGumLoadIdentity();
+    sceGumTranslate(&pos);
+
+    sceGuDrawArray(GU_SPRITES,
+        GU_TEXTURE_32BITF | GU_VERTEX_32BITF | GU_TRANSFORM_2D,
+        2, 0, img);
 }
 
 int main() {
-    pspDebugScreenInit();
-
     SceCtrlData pad;
+
+    initGraphics();
 
     while (1) {
         sceCtrlReadBufferPositive(&pad, 1);
 
-        // esquerda / direita
         if (pad.Buttons & PSP_CTRL_LEFT) playerX -= 3;
         if (pad.Buttons & PSP_CTRL_RIGHT) playerX += 3;
 
-        // pulo
         if ((pad.Buttons & PSP_CTRL_CROSS) && !isJumping) {
             velY = -10;
             isJumping = 1;
         }
 
-        // física simples
         velY += 1;
         playerY += velY;
 
-        if (playerY >= groundY) {
-            playerY = groundY;
+        if (playerY >= 200) {
+            playerY = 200;
             velY = 0;
             isJumping = 0;
         }
 
-        pspDebugScreenSetXY(0,0);
-        pspDebugScreenPrintf("PlatformerPSP\nX:%d Y:%d", playerX, playerY);
+        sceGuStart(GU_DIRECT, NULL);
+
+        drawSprite((Image*)player_img, playerX, playerY);
+
+        sceGuFinish();
+        sceGuSync(0,0);
 
         sceDisplayWaitVblankStart();
     }
